@@ -1,7 +1,9 @@
 import requests
 import os
 from dotenv import load_dotenv
-from models.VADER_Sentiment import analyze_sentiment
+from models.Combined_Sentiment import analyze_sentiment_combined
+import feedparser
+from datetime import datetime, timedelta
 # Load environment variables from .env file
 load_dotenv()
 
@@ -15,7 +17,12 @@ COMPANY_KEYWORDS = {
     'TSLA': ['Tesla', 'Elon Musk', 'Model 3', 'Model Y', 'Cybertruck', 'Supercharger'],
     'NVDA': ['Nvidia', 'GeForce', 'AI chips', 'Jensen Huang', 'RTX']
 }
-
+financial_rss_feeds = [
+    'https://feeds.bloomberg.com/markets/news.rss',
+    'https://feeds.reuters.com/money/wealth/rss',
+    'https://feeds.marketwatch.com/marketwatch/MarketPulse/',
+    'https://finance.yahoo.com/rss/'
+]
 
 def fetch_headlines(category, count=100):
     """
@@ -63,7 +70,6 @@ def fetch_headlines(category, count=100):
             'message': 'There was an error fetching the news headlines.'
         }
     
-
 def filter_relevant_articles(articles, company_keywords):
     """
     Filter articles by company relevance - can match multiple companies
@@ -98,7 +104,70 @@ def filter_relevant_articles(articles, company_keywords):
     
     return relevant_articles
 
-# Example usage:
+def fetch_rss_news(feed_url, days_back):
+    """
+    Fetch news from RSS feeds with better error handling
+    """
+    try:
+        feed = feedparser.parse(feed_url)
+        
+        if feed.bozo:
+            print(f"Warning: Feed parsing issues for {feed_url}")
+        
+        articles = []
+        cutoff_date = datetime.now() - timedelta(days=days_back)
+        
+        for entry in feed.entries:
+            try:
+                # Parse date (RSS feeds have different date formats)
+                if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                    published = datetime(*entry.published_parsed[:6])
+                elif hasattr(entry, 'published'):
+                    # Try to parse string date
+                    from dateutil import parser
+                    published = parser.parse(entry.published)
+                else:
+                    continue
+                
+                if published >= cutoff_date:
+                    articles.append({
+                        'title': entry.title,
+                        'description': entry.get('summary', entry.get('description', '')),
+                        'url': entry.link,
+                        'publishedAt': published.strftime('%Y-%m-%dT%H:%M:%S'),
+                        'source': feed.feed.get('title', 'RSS Feed'),
+                        'author': entry.get('author', '')
+                    })
+            except Exception as e:
+                print(f"Error parsing entry: {e}")
+                continue
+                
+        return articles
+        
+    except Exception as e:
+        print(f"Error fetching RSS from {feed_url}: {e}")
+        return []
+
+def fetch_all_rss_news(days_back):
+    """Fetch from all RSS sources"""
+    all_articles = []
+    
+    for feed_url in financial_rss_feeds:
+        print(f"Fetching from {feed_url}...")
+        articles = fetch_rss_news(feed_url, days_back)
+        all_articles.extend(articles)
+        print(f"  Got {len(articles)} articles")
+    
+    print(f"\nTotal RSS articles: {len(all_articles)}")
+    
+    # Show date range
+    if all_articles:
+        dates = [article['publishedAt'][:10] for article in all_articles]
+        unique_dates = sorted(set(dates))
+        print(f"Date range: {unique_dates[0]} to {unique_dates[-1]}")
+        print(f"Unique days: {len(unique_dates)}")
+    
+    return all_articles
 
 def test_full_pipeline():
     """
@@ -147,14 +216,14 @@ def test_full_pipeline():
             
             for i, article in enumerate(articles[:5]):  # Analyze first 5 articles
                 text = f"{article['title']} {article.get('description', '')}"
-                sentiment = analyze_sentiment(text)
+                sentiment = analyze_sentiment_combined(text)
                 company_sentiments.append(sentiment)
                 
-                print(f"Article {i+1}: {sentiment['classification']} ({sentiment['compound']:.3f})")
+                print(f"Article {i+1}: {sentiment['classification']} ({sentiment['combined_score']:.3f})")
                 print(f"  Title: {article['title'][:60]}...")
             
             # Calculate average sentiment for the company
-            avg_compound = sum(s['compound'] for s in company_sentiments) / len(company_sentiments)
+            avg_compound = sum(s['combined_score'] for s in company_sentiments) / len(company_sentiments)
             sentiment_results[symbol] = {
                 'articles_count': len(articles),
                 'analyzed_count': len(company_sentiments),
@@ -175,8 +244,13 @@ def test_full_pipeline():
     
     return sentiment_results
 
+
 # Run the full pipeline test
-pipeline_results = test_full_pipeline()
+if __name__ == "__main__":
+    print("Starting StockPulse full pipeline test...")
+    pipeline_results = test_full_pipeline()
+   
+
 
 
 

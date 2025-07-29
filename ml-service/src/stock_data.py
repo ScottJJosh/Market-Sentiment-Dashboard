@@ -96,15 +96,17 @@ def fetch_multiple_stocks(symbols):
     
     return results
 
-# Test with your tech companies
-tech_stocks = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'META', 'TSLA', 'NVDA']
-all_stock_data = fetch_multiple_stocks(tech_stocks)
 
-# Check results
-for symbol, data in all_stock_data.items():
-    if isinstance(data, dict) and data.get('error'):
-        print(f"{symbol}: Error - {data['message']}")
-    else:
-        print(f"{symbol}: Success - {len(data)} days of data")
-        print(data[:5])
+if __name__ == "__main__":
+    # Test with your tech companies
+    tech_stocks = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'META', 'TSLA', 'NVDA']
+    all_stock_data = fetch_multiple_stocks(tech_stocks)
+
+    # Check results
+    for symbol, data in all_stock_data.items():
+        if isinstance(data, dict) and data.get('error'):
+            print(f"{symbol}: Error - {data['message']}")
+        else:
+            print(f"{symbol}: Success - {len(data)} days of data")
+            print(data[:5])
 
