@@ -182,6 +182,24 @@ def save_sentiment_score(article_id, stock_id, sentiment_score, confidence=None)
     finally:
         conn.close()
 
+def get_stock_id(symbol):
+    """Get stock ID from database"""
+    conn = get_db_connection()
+    if not conn:
+        return None
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM stocks WHERE symbol = %s", (symbol,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except Exception as e:
+        print(f"Error getting stock ID for {symbol}: {e}")
+        return None
+    finally:
+        conn.close()
+
+
 def test_db_connection():
     """Test database connection and show available stocks"""
     conn = get_db_connection()

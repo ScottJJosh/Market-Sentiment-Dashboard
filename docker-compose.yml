@@ -5,6 +5,12 @@ services:
       - "3000:3000"
     environment:
       - REACT_APP_API_URL=http://localhost:5000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules  # Prevent overwriting node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
     
   backend:
     build: ./backend
@@ -13,10 +19,12 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:password@db:5432/sentiment_db
       - REDIS_URL=redis://redis:6379
+      - ML_SERVICE_URL=http://ml-service:8000
     depends_on:
       - db
       - redis
       - ml-service
+    restart: unless-stopped
     
   ml-service:
     build: ./ml-service
@@ -28,6 +36,7 @@ services:
       - ALPHA_VANTAGE_KEY=${ALPHA_VANTAGE_KEY}
     depends_on:
       - db
+    restart: unless-stopped
     
   db:
     image: postgres:13
@@ -39,9 +48,11 @@ services:
       - POSTGRES_PASSWORD=password
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
     
   redis:
     image: redis:6-alpine
+    restart: unless-stopped
 
 volumes:
   postgres_data:
