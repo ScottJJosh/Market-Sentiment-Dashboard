@@ -2,7 +2,7 @@ import requests
 import os
 import time
 from dotenv import load_dotenv
-
+from database import save_stock_prices
 # Load environment variables from .env file
 load_dotenv()
 
@@ -96,11 +96,34 @@ def fetch_multiple_stocks(symbols):
     
     return results
 
+def fetch_and_save_stocks(symbols):
+    """
+    Fetches stock data for multiple symbols and saves to database.
+    
+    Parameters:
+    symbols (list): List of stock symbols ['AAPL', 'GOOGL', ...]
+    
+    Returns:
+    dict: {symbol: success or error message}
+    """
+    
+    results = fetch_multiple_stocks(symbols)
+    
+    for symbol, data in results.items():
+        if isinstance(data, dict) and data.get('error'):
+            print(f"{symbol}: Error - {data['message']}")
+        else:
+            # Here you would call your database save function
+            # For example: save_stock_prices(symbol, data)
+            print(f"{symbol}: Successfully fetched {len(data)} days of data")
+            success = save_stock_prices(symbol, data)
+
+    return results
 
 if __name__ == "__main__":
     # Test with your tech companies
     tech_stocks = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'META', 'TSLA', 'NVDA']
-    all_stock_data = fetch_multiple_stocks(tech_stocks)
+    all_stock_data = fetch_and_save_stocks(tech_stocks)
 
     # Check results
     for symbol, data in all_stock_data.items():

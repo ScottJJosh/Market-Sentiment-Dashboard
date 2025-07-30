@@ -2,8 +2,10 @@ import requests
 import os
 from dotenv import load_dotenv
 from models.Combined_Sentiment import analyze_sentiment_combined
-import feedparser
+#import feedparser
 from datetime import datetime, timedelta
+from database import save_article
+from database import save_sentiment_score
 # Load environment variables from .env file
 load_dotenv()
 
@@ -104,76 +106,94 @@ def filter_relevant_articles(articles, company_keywords):
     
     return relevant_articles
 
-def fetch_rss_news(feed_url, days_back):
-    """
-    Fetch news from RSS feeds with better error handling
-    """
+# def fetch_rss_news(feed_url, days_back):
+#     """
+#     Fetch news from RSS feeds with better error handling
+#     """
+#     try:
+#         feed = feedparser.parse(feed_url)
+        
+#         if feed.bozo:
+#             print(f"Warning: Feed parsing issues for {feed_url}")
+        
+#         articles = []
+#         cutoff_date = datetime.now() - timedelta(days=days_back)
+        
+#         for entry in feed.entries:
+#             try:
+#                 # Parse date (RSS feeds have different date formats)
+#                 if hasattr(entry, 'published_parsed') and entry.published_parsed:
+#                     published = datetime(*entry.published_parsed[:6])
+#                 elif hasattr(entry, 'published'):
+#                     # Try to parse string date
+#                     from dateutil import parser
+#                     published = parser.parse(entry.published)
+#                 else:
+#                     continue
+                
+#                 if published >= cutoff_date:
+#                     articles.append({
+#                         'title': entry.title,
+#                         'description': entry.get('summary', entry.get('description', '')),
+#                         'url': entry.link,
+#                         'publishedAt': published.strftime('%Y-%m-%dT%H:%M:%S'),
+#                         'source': feed.feed.get('title', 'RSS Feed'),
+#                         'author': entry.get('author', '')
+#                     })
+#             except Exception as e:
+#                 print(f"Error parsing entry: {e}")
+#                 continue
+                
+#         return articles
+        
+#     except Exception as e:
+#         print(f"Error fetching RSS from {feed_url}: {e}")
+#         return []
+
+# def fetch_all_rss_news(days_back):
+#     """Fetch from all RSS sources"""
+#     all_articles = []
+    
+#     for feed_url in financial_rss_feeds:
+#         print(f"Fetching from {feed_url}...")
+#         articles = fetch_rss_news(feed_url, days_back)
+#         all_articles.extend(articles)
+#         print(f"  Got {len(articles)} articles")
+    
+#     print(f"\nTotal RSS articles: {len(all_articles)}")
+    
+#     # Show date range
+#     if all_articles:
+#         dates = [article['publishedAt'][:10] for article in all_articles]
+#         unique_dates = sorted(set(dates))
+#         print(f"Date range: {unique_dates[0]} to {unique_dates[-1]}")
+#         print(f"Unique days: {len(unique_dates)}")
+    
+#     return all_articles
+
+def get_stock_id(symbol):
+    """Get stock ID from database"""
+    from database import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        return None
+    
     try:
-        feed = feedparser.parse(feed_url)
-        
-        if feed.bozo:
-            print(f"Warning: Feed parsing issues for {feed_url}")
-        
-        articles = []
-        cutoff_date = datetime.now() - timedelta(days=days_back)
-        
-        for entry in feed.entries:
-            try:
-                # Parse date (RSS feeds have different date formats)
-                if hasattr(entry, 'published_parsed') and entry.published_parsed:
-                    published = datetime(*entry.published_parsed[:6])
-                elif hasattr(entry, 'published'):
-                    # Try to parse string date
-                    from dateutil import parser
-                    published = parser.parse(entry.published)
-                else:
-                    continue
-                
-                if published >= cutoff_date:
-                    articles.append({
-                        'title': entry.title,
-                        'description': entry.get('summary', entry.get('description', '')),
-                        'url': entry.link,
-                        'publishedAt': published.strftime('%Y-%m-%dT%H:%M:%S'),
-                        'source': feed.feed.get('title', 'RSS Feed'),
-                        'author': entry.get('author', '')
-                    })
-            except Exception as e:
-                print(f"Error parsing entry: {e}")
-                continue
-                
-        return articles
-        
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM stocks WHERE symbol = %s", (symbol,))
+        result = cursor.fetchone()
+        return result[0] if result else None
     except Exception as e:
-        print(f"Error fetching RSS from {feed_url}: {e}")
-        return []
+        print(f"Error getting stock ID for {symbol}: {e}")
+        return None
+    finally:
+        conn.close()
 
-def fetch_all_rss_news(days_back):
-    """Fetch from all RSS sources"""
-    all_articles = []
-    
-    for feed_url in financial_rss_feeds:
-        print(f"Fetching from {feed_url}...")
-        articles = fetch_rss_news(feed_url, days_back)
-        all_articles.extend(articles)
-        print(f"  Got {len(articles)} articles")
-    
-    print(f"\nTotal RSS articles: {len(all_articles)}")
-    
-    # Show date range
-    if all_articles:
-        dates = [article['publishedAt'][:10] for article in all_articles]
-        unique_dates = sorted(set(dates))
-        print(f"Date range: {unique_dates[0]} to {unique_dates[-1]}")
-        print(f"Unique days: {len(unique_dates)}")
-    
-    return all_articles
-
-def test_full_pipeline():
+def full_pipeline():
     """
-    Test the complete data collection and sentiment analysis pipeline
+    Run the complete data collection and sentiment analysis pipeline
     """
-    print("=== StockPulse Full Pipeline Test ===\n")
+    print("=== Stock Playground Full Pipeline ===\n")
     
     # Step 1: Collect news articles
     print("1. Collecting business news...")
@@ -242,13 +262,50 @@ def test_full_pipeline():
         if results['articles_count'] > 0:
             print(f"{symbol}: {results['classification']} sentiment ({results['average_sentiment']:.3f}) from {results['articles_count']} articles")
     
+    # Step 5: Put Into Database
+    print("\n5. Storing results in database...")
+
+    for symbol, articles in filtered_articles.items():
+        # Get the stock_id once for this symbol
+        stock_id = get_stock_id(symbol)
+        if not stock_id:
+            print(f"❌ Stock {symbol} not found in database")
+            continue
+        
+        for article in articles:
+            # Save article first
+            article_id = save_article(article, [symbol])
+            
+            if article_id:
+                # Analyze sentiment
+                text = f"{article['title']} {article.get('description', '')}"
+                sentiment_result = analyze_sentiment_combined(text)
+                sentiment_score = sentiment_result['combined_score']
+                
+                # Save sentiment with CORRECT parameters
+                sentiment_id = save_sentiment_score(
+                    article_id,      # article_id (integer)
+                    stock_id,        # stock_id (integer) 
+                    sentiment_score  # sentiment_score (float)
+                )
+                
+                if sentiment_id:
+                    print(f"✅ Saved article for {symbol}: {article['title'][:50]}...")
+                else:
+                    print(f"❌ Failed to save sentiment")
+            else:
+                print(f"⚠️  Article already exists: {article['title'][:50]}...")
+
+    print("✅ All articles and sentiment scores saved to database.")
+
+    
     return sentiment_results
 
 
-# Run the full pipeline test
+# Run the full pipeline 
 if __name__ == "__main__":
-    print("Starting StockPulse full pipeline test...")
-    pipeline_results = test_full_pipeline()
+    print("Starting StockPulse full pipeline run...")
+    pipeline_results = full_pipeline()
    
 
 

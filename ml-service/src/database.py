@@ -3,19 +3,49 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
 from datetime import datetime
+from urllib.parse import urlparse
 
 def get_db_connection():
     """Create database connection"""
     try:
         print("Attempting to connect to database...")
-        print(f"Host: localhost, Database: sentiment_db, User: postgres, Port: 5432")
+        
+        # Try to get connection details from DATABASE_URL environment variable first
+        database_url = os.getenv('DATABASE_URL')
+        
+        if database_url:
+            # Parse the DATABASE_URL
+            url = urlparse(database_url)
+            host = url.hostname
+            database = url.path[1:]  # Remove leading slash
+            user = url.username
+            password = url.password
+            port = url.port or 5432
+        else:
+            # Fallback to individual environment variables or defaults
+            # Check if we're running in Docker (hostname 'db' exists) or locally
+            default_host = 'db'
+            try:
+                import socket
+                socket.gethostbyname('db')
+            except socket.gaierror:
+                # 'db' hostname not found, likely running locally
+                default_host = 'localhost'
+            
+            host = os.getenv('DB_HOST', default_host)
+            database = os.getenv('DB_NAME', 'sentiment_db')
+            user = os.getenv('DB_USER', 'postgres')
+            password = os.getenv('DB_PASSWORD', 'password')
+            port = os.getenv('DB_PORT', '5432')
+        
+        print(f"Host: {host}, Database: {database}, User: {user}, Port: {port}")
         
         conn = psycopg2.connect(
-            host="db",
-            database="sentiment_db", 
-            user="postgres",
-            password="password",
-            port="5432"
+            host=host,
+            database=database,
+            user=user,
+            password=password,
+            port=port
         )
         print("Database connection successful!")
         return conn
@@ -176,8 +206,11 @@ def test_db_connection():
     finally:
         conn.close()
 
+
+    return False
+
 if __name__ == "__main__":
-    # Test the database connection
+    # Test the database connection with retries
     if test_db_connection():
         print("Database is ready for use.")
     else:
